@@ -1,5 +1,5 @@
-# Pipelines for the assembly of Treponema pallidum genomes
-This repository contains three Snakemake pipelines (two reference-based and one partially *de novo*) for the assembly of Treponema pallidum genomes from short-read sequencing data. Each directory contains a Snakefile and the corresponding configuration file(s). 
+# Pipelines for the assembly of *Treponema pallidum* genomes
+This repository contains three Snakemake pipelines (two reference-based and one partially *de novo*) for the assembly of *Treponema pallidum* genomes from short-read sequencing data. Each directory contains a Snakefile and the corresponding configuration file(s). 
 
 ## Reference-based assembly
 Steps:
@@ -43,7 +43,7 @@ Steps:
    Tool: [bcftools](https://academic.oup.com/gigascience/article/10/2/giab008/6137722) consensus
 
 ## Reference-based assembly with base quality score recalibration
-This is an alternative pipeline set up by Simona Skiotyté, which includes a base quality score recalibration step. It uses different tools/parameters than the above pipeline for read preprocessing, alignment deduplication, variant calling & filtering, and consesus sequence generation. It is slower since some of the steps don't allow multi-threading and it uses the reference sequence to patch the regions with low coverage. More details can be found at [https://github.com/laduplessis/treponema_pallidum_simona](https://github.com/laduplessis/treponema_pallidum_simona).
+This is an alternative pipeline set up by Simona Skiotyté, which includes a base quality score recalibration step. It uses different tools/parameters than the above pipeline for read preprocessing, alignment deduplication, variant calling & filtering, and consesus sequence generation. It is slower since some of the steps don't allow multi-threading and it uses the reference sequence to patch the regions with low coverage. More details can be found [here](https://github.com/laduplessis/treponema_pallidum_simona).
 
 ## (Partially) *De novo* assembly
 Steps:
@@ -89,9 +89,10 @@ Store the compressed paired-end .fastq files in a directory named `data`, contai
 snakemake --cores 16 --use-singularity results/ERR3596791/ERR3596791.fasta
 ```
 ### Resources
-The pipeline uses up to 16 threads per sample and can process multiple samples in parallel if enough threads are provided. Example: to process 10 samples at the same time, 160 threads are needed. With SLURM, that means 10 nodes with 16 threads each or 5 nodes with 32 threads each. The reference-based pipeline needs up to 10 minutes/sample (with 16 threads). The de novo assembly might take up to 30 minutes/sample. Some steps are memory-intensive (up to 5 GB per CPU).
+All pipelines use up to 16 threads per sample and can process multiple samples in parallel if enough threads are provided. Example: to process 10 samples at the same time, 160 threads are needed. With SLURM, that means 10 nodes with 16 threads each or 5 nodes with 32 threads each. The reference-based pipeline needs up to 10 minutes/sample (with 16 threads). The de novo assembly might take up to 30 minutes/sample. Some steps are memory-intensive (5 GB per CPU).
+
 ## Downstream analysis
-The pipeline creates a multi-fasta file containing the consensus sequences of all samples, but these will not be aligned (unless only the SNPs were included). To align consensus sequences containing indels or *de novo* assembled sequences, you can try using MAFFT or Mauve. These are among the few multiple sequence alignment tools capable of aligning genomes larger than 1 Mbp, but they are still limited in the number of sequences that can be aligned. MAFFT is relatively fast and accurate for up to 15 sequences, but totally infeasible for more. Mauve goes up to 40, but it takes hours to run and it is not very accurate. 
+The pipeline creates a multi-fasta file containing the consensus sequences of all samples, but these will not be aligned (unless only the SNPs were included). To align consensus sequences containing indels or *de novo* assembled sequences, you can try using [MAFFT](https://academic.oup.com/bib/article/20/4/1160/4106928) or [Mauve](https://pmc.ncbi.nlm.nih.gov/articles/PMC442156/). These are among the few multiple sequence alignment tools capable of aligning genomes larger than 1 Mbp, but they are still limited in the number of sequences that can be aligned. MAFFT is relatively fast and accurate for up to 15 sequences, but totally infeasible for more. Mauve goes up to 40, but it takes hours to run and it is not very accurate. 
 
 Example usage:
 ```
