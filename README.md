@@ -18,7 +18,7 @@ Steps:
    
    Removes alignment duplicates (reads mapping to the same position, with the same orientation). This is different to the read deduplication in step 1, which only removes reads with the exactly same sequence. It aims to reduce the bias introduced by PCR & sequencing errors.
    
-   Tool: [samtools]https://academic.oup.com/gigascience/article/10/2/giab008/6137722) markdup
+   Tool: [samtools](https://academic.oup.com/gigascience/article/10/2/giab008/6137722) markdup
 
 4. Variant calling
    
@@ -43,24 +43,25 @@ Steps:
    Tool: [bcftools](https://academic.oup.com/gigascience/article/10/2/giab008/6137722) consensus
 
 ## Reference-based assembly with base quality score recalibration
-This is an alternative pipeline set up by Simona Skiotyt\'e, which includes a base quality score recalibration step. It uses different tools than the above pipeline for read preprocessing, alignment deduplication, variant calling and filtering. It is slower since some of the steps don't allow multi-threading and it uses the reference sequence to patch the regions with low coverage. More details can be found at [https://github.com/laduplessis/treponema_pallidum_simona](https://github.com/laduplessis/treponema_pallidum_simona).
+This is an alternative pipeline set up by Simona Skiotyté, which includes a base quality score recalibration step. It uses different tools/parameters than the above pipeline for read preprocessing, alignment deduplication, variant calling & filtering, and consesus sequence generation. It is slower since some of the steps don't allow multi-threading and it uses the reference sequence to patch the regions with low coverage. More details can be found at [https://github.com/laduplessis/treponema_pallidum_simona](https://github.com/laduplessis/treponema_pallidum_simona).
 
 ## (Partially) *De novo* assembly
 Steps:
 1. Read preprocessing
 
-Tool: [fastp](https://academic.oup.com/bioinformatics/article/34/17/i884/5093234)
+   Tool: [fastp](https://academic.oup.com/bioinformatics/article/34/17/i884/5093234)
 
 2. *De novo* assembly
 
-Tool: [SPAdes](https://pmc.ncbi.nlm.nih.gov/articles/PMC3342519/)
+   Tool: [SPAdes](https://pmc.ncbi.nlm.nih.gov/articles/PMC3342519/)
+
 3. Reference-assisted scaffolding
 
-Tool: [Ragout](https://academic.oup.com/bioinformatics/article/30/12/i302/388572)
+   Tool: [Ragout](https://academic.oup.com/bioinformatics/article/30/12/i302/388572)
 
 4. Assembly QC
 
-Tool: [QUAST](https://academic.oup.com/bioinformatics/article/29/8/1072/228832)
+   Tool: [QUAST](https://academic.oup.com/bioinformatics/article/29/8/1072/228832)
 
 ## Usage
 Basic usage:
@@ -87,9 +88,11 @@ Store the compressed paired-end .fastq files in a directory named `data`, contai
 ```
 snakemake --cores 16 --use-singularity results/ERR3596791/ERR3596791.fasta
 ```
-
-## Multiple sequence aligment
+### Resources
+The pipeline uses up to 16 threads per sample and can process multiple samples in parallel if enough threads are provided. Example: to process 10 samples at the same time, 160 threads are needed. With SLURM, that means 10 nodes with 16 threads each or 5 nodes with 32 threads each. The reference-based pipeline needs up to 10 minutes/sample (with 16 threads). The de novo assembly might take up to 30 minutes/sample. Some steps are memory-intensive (up to 5 GB per CPU).
+## Downstream analysis
 The pipeline creates a multi-fasta file containing the consensus sequences of all samples, but these will not be aligned (unless only the SNPs were included). To align consensus sequences containing indels or *de novo* assembled sequences, you can try using MAFFT or Mauve. These are among the few multiple sequence alignment tools capable of aligning genomes larger than 1 Mbp, but they are still limited in the number of sequences that can be aligned. MAFFT is relatively fast and accurate for up to 15 sequences, but totally infeasible for more. Mauve goes up to 40, but it takes hours to run and it is not very accurate. 
+
 Example usage:
 ```
 mafft --retree 1 --nwildcard --thread <no. of threads> <input.fasta> > <output.fasta>
