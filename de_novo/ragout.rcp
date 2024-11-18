@@ -1,0 +1,7 @@
+#reference and target genome names
+.references = ref
+.target = query
+
+#paths to fasta files
+ref.fasta = ../../reference/NC_016848.fasta
+query.fasta = contigs.fasta

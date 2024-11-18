@@ -1,0 +1,13 @@
+#General
+REFERENCE: "reference/NC_016848.fasta"
+THREADS: 16
+
+
+#Alignment
+
+MIN_SEED_LENGTH: 19             # min. seed length
+MIN_INTERNAL_SEED_X: 1.5        # look for internal seeds inside a seed longer than MIN_SEED_LENGTH * MIN_INTERNAL_SEED_X
+
+#Variant calling
+
+MIN_QUALITY: 20                 # min. PHRED score

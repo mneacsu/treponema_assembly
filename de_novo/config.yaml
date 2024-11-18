@@ -1,0 +1,12 @@
+#General
+
+THREADS: 16
+
+#De novo assembly 
+
+MIN_DEPTH: 5
+
+#Scaffolding
+
+REFERENCE: "reference/NC_021490.fasta"
+RECIPE: "ragout.rcp"

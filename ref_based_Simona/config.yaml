@@ -1,0 +1,27 @@
+REFERENCE: "reference/NC_016848.fasta"
+THREADS: 16
+
+#Adapter trimming
+
+TRIM_ADAPTERS: False
+ADAPTER_FWD: "AGATCGGAAGAG"
+ADAPTER_REV: "AGATCGGAAGAG"
+MIN_QUAL_ENDS: 25               # cutoff for trimming low-quality bases from 5' and/or 3' ends of each read before adapter removal
+
+#Alignment
+
+MIN_SEED_LENGTH: 19             # min. seed length
+MIN_INTERNAL_SEED_X: 2.5        # look for internal seeds inside a seed longer than MIN_SEED_LENGTH * MIN_INTERNAL_SEED_X
+
+#Variant calling
+
+MIN_CONFIDENCE: 30              # min. confidence
+
+#Variant filtering
+
+MAX_QD: 2.0                     # max. quality by depth
+MIN_FS: 55.0                    # min. fisher strand score
+MAX_MQ: 50.0                    # max. root mean square mapping quality
+MIN_SOR: 4.0                    # min. strand odds ratio
+MAX_MQ_RANK_SUM: -8.0           
+MAX_READ_POS_RANK_SUM: -8.0

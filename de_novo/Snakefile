@@ -1,0 +1,126 @@
+configfile: "config.yaml"
+
+SAMPLES = os.listdir("data")
+
+rule all:
+    message:
+        """
+        Gathering all sequences
+        """
+    input:
+        expand("results/{sample_id}/scaffold.fasta", sample_id=SAMPLES),
+        expand("results/{sample_id}/quast", sample_id=SAMPLES),
+        reference = config['REFERENCE']
+    output:
+        all_sequences = "results/all_sequences.fasta"
+    shell:
+        '''
+        head -n -1 {input.reference} > {output.all_sequences}
+        for sample in {SAMPLES}
+        do
+           echo ">$sample" >> {output.all_sequences}
+           tail -n +2 results/$sample/scaffold.fasta >> {output.all_sequences}
+        done
+        '''
+
+rule preprocess:
+    message:
+        """
+        Read pre-processing (adapter & quality trimming, quality filtering, deduplication & QC)
+        """
+    input:
+        reads_fwd = "data/{sample_id}/{sample_id}_1.fastq.gz",
+        reads_rev = "data/{sample_id}/{sample_id}_2.fastq.gz"
+    output:
+        reads_fwd_clean ="results/{sample_id}/{sample_id}_1_clean.fastq.gz",
+        reads_rev_clean = "results/{sample_id}/{sample_id}_2_clean.fastq.gz",
+        report = "results/{sample_id}/{sample_id}_reads_qc.html"
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        fastp   -i {input.reads_fwd} -I {input.reads_rev} \
+                -o {output.reads_fwd_clean} -O {output.reads_rev_clean} \
+                --dedup \
+                --html {output.report} \
+                -w {threads}
+        '''
+
+rule assemble:
+    message:
+        """
+        De novo assembly
+        """
+    input:
+        reads_fwd = rules.preprocess.output.reads_fwd_clean,
+        reads_rev = rules.preprocess.output.reads_rev_clean,
+    params:
+        min_depth = config['MIN_DEPTH'],
+    output:
+        out_dir = temp(directory("results/{sample_id}/spades")),
+        contigs = "results/{sample_id}/contigs.fasta"
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        spades.py \
+                -1 {input.reads_fwd} -2 {input.reads_rev} \
+                --isolate \
+                --cov-cutoff {params.min_depth} \
+                -t {threads} \
+                -o {output.out_dir}
+        mv {output.out_dir}/scaffolds.fasta {output.contigs}
+        '''
+
+
+rule scaffold:
+    message:
+        """
+        Scaffold
+        """
+    input:
+        contigs = rules.assemble.output.contigs,
+        reference = config['REFERENCE'],
+        recipe = config['RECIPE']
+    output:
+        out_dir = temp(directory("results/{sample_id}/ragout")),
+        scaffolds = "results/{sample_id}/scaffold.fasta"
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        cp {input.recipe} results/{wildcards.sample_id}/
+        ragout results/{wildcards.sample_id}/{input.recipe} -t {threads} --refine --repeats -o {output.out_dir} 
+        mv {output.out_dir}/query_scaffolds.fasta {output.scaffolds} 
+        rm results/{wildcards.sample_id}/{input.recipe}
+        '''
+
+
+rule assembly_qc:
+    message:
+        """
+        Assembly quality control
+        """
+    input:
+        scaffolds = rules.scaffold.output.scaffolds,
+        reference = config['REFERENCE'],
+        reads_fwd = rules.preprocess.output.reads_fwd_clean,
+        reads_rev = rules.preprocess.output.reads_rev_clean
+    output:
+        out_dir = directory("results/{sample_id}/quast")
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        quast.py -1 {input.reads_fwd}  -2 {input.reads_rev} -r {input.reference}  -o {output.out_dir} -s {input.scaffolds} -t {threads}
+        '''
+
+
+
+
+
+

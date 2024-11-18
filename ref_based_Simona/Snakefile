@@ -1,0 +1,380 @@
+configfile: "config.yaml"
+
+SAMPLES = os.listdir("data")
+
+rule all:
+    message:
+        """
+        Gathering all consensus sequences
+        """
+    input:
+        expand("results/{sample_id}/{sample_id}.fasta", sample_id=SAMPLES)
+    output:
+        "results/consensus_all.fasta"
+    shell:
+        '''
+        for sample in {SAMPLES}
+        do
+           echo ">$sample" >> {output}
+           tail -n +2 results/$sample/$sample.fasta >> {output}
+        done
+        '''
+
+
+rule trim:
+    message:
+        """
+        Trimming adapters
+        """
+    input:
+        reads_fwd = "data/{sample_id}/{sample_id}_1.fastq.gz", 
+        reads_rev = "data/{sample_id}/{sample_id}_2.fastq.gz" 
+    params:
+        adapter_fwd = config['ADAPTER_FWD'],
+        adapter_rev = config['ADAPTER_REV'],
+        min_qual_ends = config['MIN_QUAL_ENDS'],
+        threads = config['THREADS']
+    output:
+        trimmed_fwd = temp("results/{sample_id}/{sample_id}_trimmed_1.fastq.gz"),
+        trimmed_rev = temp("results/{sample_id}/{sample_id}_trimmed_2.fastq.gz")
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        cutadapt -a {params.adapter_fwd} -A {params.adapter_rev} \
+                -q {params.min_qual_ends} \
+                -o {output.trimmed_fwd} \
+                -p {output.trimmed_rev} \
+                {input.reads_fwd} \
+                {input.reads_rev} \
+                -j {params.threads}
+        '''
+
+rule align:
+    message:
+        """
+        Aligning reads
+        """
+    input:
+        reads_fwd = (rules.trim.output.trimmed_fwd if config['TRIM_ADAPTERS'] else rules.trim.input.reads_fwd),
+        reads_rev = (rules.trim.output.trimmed_rev if config['TRIM_ADAPTERS'] else rules.trim.input.reads_rev),
+        reference = config['REFERENCE']
+    params:
+        min_seed_length = config['MIN_SEED_LENGTH'],
+        min_internal_seed_x = config['MIN_INTERNAL_SEED_X'],
+        threads = config['THREADS']
+    output:
+        alignment = temp("results/{sample_id}/{sample_id}.sam")
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        bwa mem -k {params.min_seed_length} -r {params.min_internal_seed_x} \
+                -R "@RG\\tID:{wildcards.sample_id}\\tSM:{wildcards.sample_id}\\tPL:illumina\\tLB:{wildcards.sample_id}\\tPU:1" \
+                -o {output.alignment} \
+                {input.reference} \
+                {input.reads_fwd} {input.reads_rev} \
+                -t {params.threads}
+        '''
+
+rule sort:
+    message:
+        """
+        Sorting alignment
+        """
+    input:
+        alignment = rules.align.output.alignment
+    output:
+        sorted_alignment = temp("results/{sample_id}/{sample_id}.bam")
+    params:
+        threads = config['THREADS'] - 1 
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        samtools sort {input.alignment} -o {output.sorted_alignment} --threads {params.threads}
+        '''
+
+rule deduplicate:
+    message:
+        """
+        Marking duplicates
+        """
+    input:
+        alignment = rules.sort.output.sorted_alignment
+    output:
+        deduplicated_alignment = temp("results/{sample_id}/{sample_id}_marked.bam"),
+        duplicate_metrics = temp("results/{sample_id}/duplicate_metrics_{sample_id}.txt")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        picard MarkDuplicates \
+                    -I {input.alignment} \
+                    --ASSUME_SORTED \
+                    --REMOVE_DUPLICATES \
+                    -O {output.deduplicated_alignment} \
+                    -M {output.duplicate_metrics}
+        '''
+
+rule index:
+    message:
+        """
+        Indexing alignment
+        """
+    input:
+        alignment = rules.deduplicate.output.deduplicated_alignment
+    output:
+        alignment_index = temp("results/{sample_id}/{sample_id}_marked.bam.bai"),
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        samtools index {input.alignment}
+        '''
+
+rule call_variants:
+    message:
+        """
+        Calling variants
+        """
+    input:
+        alignment = rules.deduplicate.output.deduplicated_alignment,
+        alignment_index = rules.index.output.alignment_index,
+        reference = config['REFERENCE']
+    output:
+        variants = temp("results/{sample_id}/{sample_id}.vcf"),
+        index = temp("results/{sample_id}/{sample_id}.vcf.idx")
+    params:
+        min_confidence = config['MIN_CONFIDENCE']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk HaplotypeCaller \
+            --input {input.alignment} \
+            --output {output.variants} \
+            --reference {input.reference} \
+            -ploidy 1 \
+            --standard-min-confidence-threshold-for-calling {params.min_confidence}
+        '''
+
+rule get_SNPs:
+    message:
+        """
+        Filtering SNPs
+        """
+    input:
+        variants = rules.call_variants.output.variants,
+        reference = config['REFERENCE']
+    output:
+        SNPs = temp("results/{sample_id}/{sample_id}_SNPs.vcf"),
+        index = temp("results/{sample_id}/{sample_id}_SNPs.vcf.idx")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk SelectVariants \
+            -R {input.reference} \
+            -V {input.variants} \
+            -select-type SNP \
+            -O {output.SNPs}
+        '''
+
+
+rule filter:
+    message:
+        """
+        Filtering variants based on quality criteria
+        """
+    input:
+        variants = rules.get_SNPs.output.SNPs,
+        reference = config['REFERENCE']
+    output:
+        prep_for_filtering_variants = temp("results/{sample_id}/{sample_id}_SNPs_prep_for_filtering.vcf"),
+        index = temp("results/{sample_id}/{sample_id}_SNPs_prep_for_filtering.vcf.idx")
+    params:
+        max_QD = config['MAX_QD'],
+        min_FS = config['MIN_FS'],
+        max_MQ = config['MAX_MQ'],
+        min_SOR = config['MIN_SOR'],
+        max_MQ_rank_sum = config['MAX_MQ_RANK_SUM'],
+        max_read_pos_rank_sum = config['MAX_READ_POS_RANK_SUM']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk VariantFiltration \
+            -R {input.reference} \
+            -V {input.variants} \
+            -O {output.prep_for_filtering_variants} \
+            -filter-name "QD_filter" -filter "QD < {params.max_QD}" \
+            -filter-name "FS_filter" -filter "FS > {params.min_FS}" \
+            -filter-name "MQ_filter" -filter "MQ < {params.max_MQ}" \
+            -filter-name "SOR_filter" -filter "SOR > {params.min_SOR}" \
+            -filter-name "MQRankSum_filter" -filter "MQRankSum < {params.max_MQ_rank_sum}" \
+            -filter-name "ReadPosRankSum_filter" -filter "ReadPosRankSum < {params.max_read_pos_rank_sum}"
+        '''
+
+
+rule exclude:
+    message:
+        """
+        Excluding low-quality variants
+        """
+    input:
+        variants = rules.filter.output.prep_for_filtering_variants
+    output:
+        filtered_variants = temp("results/{sample_id}/{sample_id}_SNPs_filtered.vcf"),
+        index = temp("results/{sample_id}/{sample_id}_SNPs_filtered.vcf.idx")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk SelectVariants \
+            --exclude-filtered \
+            -V {input.variants} \
+            -O {output.filtered_variants}
+        '''
+
+rule calculate_bqsr:
+    message:
+        """
+        Calculating base quality score recalibration parameters
+        """
+    input:
+        variants = rules.exclude.output.filtered_variants,
+        index = rules.exclude.output.index,
+        alignment = rules.deduplicate.output.deduplicated_alignment,
+        reference = config['REFERENCE']
+    output:
+        recalibration_data = temp("results/{sample_id}/{sample_id}_recalibration.table")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk BaseRecalibrator \
+            -R {input.reference} \
+            -I {input.alignment} \
+            --known-sites {input.variants} \
+            -O {output.recalibration_data}
+        '''
+
+rule apply_bqsr:
+    message:
+        """
+        Applying base quality score recalibration
+        """
+    input:
+        alignment = rules.deduplicate.output.deduplicated_alignment,
+        reference = config['REFERENCE'],
+        recalibration_data = rules.calculate_bqsr.output.recalibration_data
+    output:
+        recalibrated_alignment = "results/{sample_id}/{sample_id}_recalibrated.bam",
+        index = "results/{sample_id}/{sample_id}_recalibrated.bai"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk ApplyBQSR \
+            -R {input.reference} \
+            -I {input.alignment} \
+            -bqsr {input.recalibration_data} \
+            -O {output.recalibrated_alignment}
+        '''
+
+
+rule call_variants_after_bqsr:
+    message:
+        """
+        Calling variants after recalibration
+        """
+    input:
+        alignment = rules.apply_bqsr.output.recalibrated_alignment,
+        reference = config['REFERENCE'],
+    output:
+        recalibrated_variants = temp("results/{sample_id}/{sample_id}_recalibrated.vcf"),
+        index = temp("results/{sample_id}/{sample_id}_recalibrated.vcf.idx")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk HaplotypeCaller \
+            -R {input.reference} \
+            -I {input.alignment} \
+            -O {output.recalibrated_variants}
+        '''
+
+rule get_SNPs_after_bqsr:
+    message:
+        """
+        Filtering SNPs after recalibration
+        """
+    input:
+        variants = rules.call_variants_after_bqsr.output.recalibrated_variants,
+        reference = config['REFERENCE'],
+    output:
+        recalibrated_SNPs = "results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf",
+        SNPs_index = "results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf.idx"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk SelectVariants \
+            -R {input.reference} \
+            -V {input.variants} \
+            -select-type SNP \
+            -O {output.recalibrated_SNPs}
+        '''
+
+
+rule compress_variants:
+    message:
+        """
+        Compressing VCF file
+        """
+    input:
+        variants = rules.get_SNPs_after_bqsr.output.recalibrated_SNPs,
+    output:
+        compressed_variants = "results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf.gz"
+    shell:
+        '''
+        bgzip {input.variants}
+        '''
+
+rule index_variants:
+    message:
+        """
+        Indexing VCF file
+        """
+    input:
+        variants = rules.compress_variants.output.compressed_variants,
+    output:
+        index = temp("results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf.gz.csi")
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        bcftools index -f {input.variants}
+        '''
+
+rule consensus:
+    message:
+        """
+        Creating consensus sequence
+        """
+    input:
+        variants = rules.compress_variants.output.compressed_variants,
+        variants_index = rules.index_variants.output.index,
+        reference = config['REFERENCE']
+    output:
+        consensus = "results/{sample_id}/{sample_id}.fasta"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        bcftools consensus -f {input.reference} {input.variants} -o {output.consensus}
+        '''

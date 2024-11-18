@@ -1,0 +1,250 @@
+configfile: "config.yaml"
+
+SAMPLES = os.listdir("data")
+
+rule all:
+    message:
+        """
+        Gathering all consensus sequences
+        """
+    input:
+        expand("results/{sample_id}/{sample_id}.fasta", sample_id=SAMPLES),
+        expand("results/{sample_id}/{sample_id}_SNPs_only.fasta", sample_id=SAMPLES),
+        expand("results/{sample_id}/{sample_id}_variants_qc.report", sample_id=SAMPLES)
+    output:
+        consensus = "results/consensus_sequences.fasta",
+        consensus_SNPs_only = "results/consensus_sequences_SNPs_only.fasta"
+    shell:
+        '''
+        for sample in {SAMPLES}
+        do
+           echo ">$sample" >> {output.consensus}
+           tail -n +2 results/$sample/$sample.fasta >> {output.consensus}
+           echo ">$sample" >> {output.consensus_SNPs_only}
+           tail -n +2 results/$sample/"$sample"_SNPs_only.fasta >> {output.consensus_SNPs_only}
+        done
+        '''
+
+
+rule preprocess:
+    message:
+        """
+        Read pre-processing (adapter & quality trimming, quality filtering, deduplication & QC)
+        """
+    input:
+        reads_fwd = "data/{sample_id}/{sample_id}_1.fastq.gz",
+        reads_rev = "data/{sample_id}/{sample_id}_2.fastq.gz"
+    output:
+        reads_fwd_clean ="results/{sample_id}/{sample_id}_1_clean.fastq.gz",
+        reads_rev_clean = "results/{sample_id}/{sample_id}_2_clean.fastq.gz",
+        report = "results/{sample_id}/{sample_id}_reads_qc.html"
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        fastp   -i {input.reads_fwd} -I {input.reads_rev} \
+                -o {output.reads_fwd_clean} -O {output.reads_rev_clean} \
+                --dedup \
+                --html {output.report} \
+                -w {threads}
+        '''
+
+
+rule align:
+    message:
+        """
+        Aligning reads
+        """
+    input:
+        reads_fwd = rules.preprocess.output.reads_fwd_clean,
+        reads_rev = rules.preprocess.output.reads_rev_clean,
+        reference = config['REFERENCE']
+    params:
+        min_seed_length = config['MIN_SEED_LENGTH'],
+        min_internal_seed_x = config['MIN_INTERNAL_SEED_X'],
+        threads = config['THREADS']
+    output:
+        alignment = temp("results/{sample_id}/{sample_id}.sam")
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        bwa mem -k {params.min_seed_length} -r {params.min_internal_seed_x} \
+                -o {output.alignment} \
+                {input.reference} \
+                {input.reads_fwd} {input.reads_rev} \
+                -t {params.threads}
+        '''
+
+rule sort_alignment:
+    message:
+        """
+        Sorting alignment
+        """
+    input:
+        alignment = rules.align.output.alignment
+    output:
+        alignment_mate = temp("results/{sample_id}/{sample_id}_mate.bam"),
+        sorted_alignment = temp("results/{sample_id}/{sample_id}.bam")
+    params:
+        threads = config['THREADS'] - 1 
+    threads: config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        samtools sort -n {input.alignment} -o {output.sorted_alignment} --threads {params.threads}
+        samtools fixmate -m {input.alignment} {output.alignment_mate} --threads {params.threads}
+        samtools sort {output.alignment_mate} -o {output.sorted_alignment} --threads {params.threads}
+        '''
+
+rule remove_duplicates:
+    message:
+        """
+        Removing duplicates
+        """
+    input:
+        alignment = rules.sort_alignment.output.sorted_alignment
+    output:
+        deduplicated_alignment = "results/{sample_id}/{sample_id}_deduplicated.bam",
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        samtools markdup -r {input.alignment} {output.deduplicated_alignment}
+        '''
+
+rule index_alignment:
+    message:
+        """
+        Indexing alignment
+        """
+    input:
+        alignment = rules.remove_duplicates.output.deduplicated_alignment
+    output:
+        alignment_index = "results/{sample_id}/{sample_id}_deduplicated.bam.bai"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        samtools index {input.alignment}
+        '''
+
+rule call_variants:
+    message:
+        """
+        Calling variants
+        """
+    input:
+        alignment = rules.remove_duplicates.output.deduplicated_alignment,
+        alignment_index = rules.index_alignment.output.alignment_index,
+        reference = config['REFERENCE']
+    output:
+        variants = temp("results/{sample_id}/{sample_id}.vcf.gz"),
+        index = temp("results/{sample_id}/{sample_id}.vcf.gz.csi")
+    params:
+        threads = config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    threads: config['THREADS']
+    shell:
+        '''
+        bcftools mpileup -Ou -f {input.reference} {input.alignment} --threads {params.threads}| bcftools call --ploidy 1 --threads {params.threads} -m -Oz -o {output.variants}
+        bcftools index {output.variants}
+        '''
+
+rule filter_variants:
+    message:
+        """
+        Filtering variants
+        """
+    input:
+        variants = rules.call_variants.output.variants,
+        index = rules.call_variants.output.index
+    output:
+        high_quality_variants = temp("results/{sample_id}/{sample_id}_clean.vcf.gz"),
+        index = temp("results/{sample_id}/{sample_id}_clean.vcf.gz.csi")
+    params:
+        min_quality = config['MIN_QUALITY'],
+        threads = config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    threads: config['THREADS']
+    shell:
+        '''
+        bcftools filter --exclude 'QUAL < {params.min_quality}' --threads {params.threads} {input.variants} -Oz -o {output.high_quality_variants}
+        bcftools index {output.high_quality_variants}
+        '''
+
+
+rule split_SNPs_indels:
+    message:
+        """
+        Split SNPs and indels
+        """
+    input:
+        variants = rules.filter_variants.output.high_quality_variants,
+        index = rules.filter_variants.output.index
+    output:
+        SNPs = "results/{sample_id}/{sample_id}_SNPs.vcf.gz",
+        indels = "results/{sample_id}/{sample_id}_indels.vcf.gz",
+        index_SNPs = "results/{sample_id}/{sample_id}_SNPs.vcf.gz.csi",
+        index_indels = "results/{sample_id}/{sample_id}_indels.vcf.gz.csi", 
+    params:
+        threads = config['THREADS']
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    threads: config['THREADS']
+    shell:
+        '''
+        bcftools filter --exclude 'TYPE = "INDEL"' --threads {params.threads} {input.variants} -Oz -o {output.SNPs}
+        bcftools filter --include 'TYPE = "INDEL"' --threads {params.threads} {input.variants} -Oz -o {output.indels}
+        bcftools index {output.SNPs}
+        bcftools index {output.indels}
+        '''
+
+rule consensus:
+    message:
+        """
+        Creating consensus sequence
+        """
+    input:
+        variants = rules.filter_variants.output.high_quality_variants,
+        index = rules.filter_variants.output.index,
+        variants_SNPs_only = rules.split_SNPs_indels.output.SNPs,
+        index_SNPs_only = rules.split_SNPs_indels.output.index_SNPs,
+        reference = config['REFERENCE']
+    output:
+        consensus = "results/{sample_id}/{sample_id}.fasta",
+        consensus_SNPs_only = "results/{sample_id}/{sample_id}_SNPs_only.fasta"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        bcftools consensus -a N -f {input.reference} {input.variants} -o {output.consensus}
+        bcftools consensus -a N -f {input.reference} {input.variants_SNPs_only} -o {output.consensus_SNPs_only}
+        '''
+
+rule variant_qc:
+    message:
+        """
+        Variants quality control
+        """
+    input:
+        variants = rules.filter_variants.output.high_quality_variants,
+        reference = config['REFERENCE']
+    output:
+        qc_metrics = "results/{sample_id}/{sample_id}_variants_qc.report"
+    singularity:
+        "docker://mneacs/treponema-assembly"
+    shell:
+        '''
+        gatk IndexFeatureFile -I {input.variants}
+        gatk VariantEval \
+            --eval {input.variants} \
+            -R {input.reference} \
+            -ploidy 1 \
+            -O {output.qc_metrics}
+        '''
