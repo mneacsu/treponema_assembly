@@ -1,5 +1,7 @@
-REFERENCE: "reference/NC_016848.fasta"
-THREADS: 16
+#General
+
+SINGULARITY: "docker://mneacs/treponema-assembly:latest"
+THREADS: 16                     # max. number of threads per sample
 
 #Adapter trimming
 
@@ -10,6 +12,7 @@ MIN_QUAL_ENDS: 25               # cutoff for trimming low-quality bases from 5' 
 
 #Alignment
 
+REFERENCE: "reference/NC_016848.fasta"
 MIN_SEED_LENGTH: 19             # min. seed length
 MIN_INTERNAL_SEED_X: 2.5        # look for internal seeds inside a seed longer than MIN_SEED_LENGTH * MIN_INTERNAL_SEED_X
 

@@ -39,7 +39,7 @@ rule trim:
         trimmed_rev = temp("results/{sample_id}/{sample_id}_trimmed_2.fastq.gz")
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         cutadapt -a {params.adapter_fwd} -A {params.adapter_rev} \
@@ -68,7 +68,7 @@ rule align:
         alignment = temp("results/{sample_id}/{sample_id}.sam")
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         bwa mem -k {params.min_seed_length} -r {params.min_internal_seed_x} \
@@ -92,7 +92,7 @@ rule sort:
         threads = config['THREADS'] - 1 
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         samtools sort {input.alignment} -o {output.sorted_alignment} --threads {params.threads}
@@ -109,7 +109,7 @@ rule deduplicate:
         deduplicated_alignment = temp("results/{sample_id}/{sample_id}_marked.bam"),
         duplicate_metrics = temp("results/{sample_id}/duplicate_metrics_{sample_id}.txt")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         picard MarkDuplicates \
@@ -130,7 +130,7 @@ rule index:
     output:
         alignment_index = temp("results/{sample_id}/{sample_id}_marked.bam.bai"),
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         samtools index {input.alignment}
@@ -151,7 +151,7 @@ rule call_variants:
     params:
         min_confidence = config['MIN_CONFIDENCE']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk HaplotypeCaller \
@@ -174,7 +174,7 @@ rule get_SNPs:
         SNPs = temp("results/{sample_id}/{sample_id}_SNPs.vcf"),
         index = temp("results/{sample_id}/{sample_id}_SNPs.vcf.idx")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk SelectVariants \
@@ -204,7 +204,7 @@ rule filter:
         max_MQ_rank_sum = config['MAX_MQ_RANK_SUM'],
         max_read_pos_rank_sum = config['MAX_READ_POS_RANK_SUM']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk VariantFiltration \
@@ -231,7 +231,7 @@ rule exclude:
         filtered_variants = temp("results/{sample_id}/{sample_id}_SNPs_filtered.vcf"),
         index = temp("results/{sample_id}/{sample_id}_SNPs_filtered.vcf.idx")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk SelectVariants \
@@ -253,7 +253,7 @@ rule calculate_bqsr:
     output:
         recalibration_data = temp("results/{sample_id}/{sample_id}_recalibration.table")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk BaseRecalibrator \
@@ -276,7 +276,7 @@ rule apply_bqsr:
         recalibrated_alignment = "results/{sample_id}/{sample_id}_recalibrated.bam",
         index = "results/{sample_id}/{sample_id}_recalibrated.bai"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk ApplyBQSR \
@@ -299,7 +299,7 @@ rule call_variants_after_bqsr:
         recalibrated_variants = temp("results/{sample_id}/{sample_id}_recalibrated.vcf"),
         index = temp("results/{sample_id}/{sample_id}_recalibrated.vcf.idx")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk HaplotypeCaller \
@@ -320,7 +320,7 @@ rule get_SNPs_after_bqsr:
         recalibrated_SNPs = "results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf",
         SNPs_index = "results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf.idx"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk SelectVariants \
@@ -355,7 +355,7 @@ rule index_variants:
     output:
         index = temp("results/{sample_id}/{sample_id}_SNPs_recalibrated.vcf.gz.csi")
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         bcftools index -f {input.variants}
@@ -373,7 +373,7 @@ rule consensus:
     output:
         consensus = "results/{sample_id}/{sample_id}.fasta"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         bcftools consensus -f {input.reference} {input.variants} -o {output.consensus}

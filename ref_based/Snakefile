@@ -40,7 +40,7 @@ rule preprocess:
         report = "results/{sample_id}/{sample_id}_reads_qc.html"
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         fastp   -i {input.reads_fwd} -I {input.reads_rev} \
@@ -68,7 +68,7 @@ rule align:
         alignment = temp("results/{sample_id}/{sample_id}.sam")
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         bwa mem -k {params.min_seed_length} -r {params.min_internal_seed_x} \
@@ -92,7 +92,7 @@ rule sort_alignment:
         threads = config['THREADS'] - 1 
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         samtools sort -n {input.alignment} -o {output.sorted_alignment} --threads {params.threads}
@@ -110,7 +110,7 @@ rule remove_duplicates:
     output:
         deduplicated_alignment = "results/{sample_id}/{sample_id}_deduplicated.bam",
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         samtools markdup -r {input.alignment} {output.deduplicated_alignment}
@@ -126,7 +126,7 @@ rule index_alignment:
     output:
         alignment_index = "results/{sample_id}/{sample_id}_deduplicated.bam.bai"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         samtools index {input.alignment}
@@ -147,7 +147,7 @@ rule call_variants:
     params:
         threads = config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     threads: config['THREADS']
     shell:
         '''
@@ -170,7 +170,7 @@ rule filter_variants:
         min_quality = config['MIN_QUALITY'],
         threads = config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     threads: config['THREADS']
     shell:
         '''
@@ -195,7 +195,7 @@ rule split_SNPs_indels:
     params:
         threads = config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     threads: config['THREADS']
     shell:
         '''
@@ -220,7 +220,7 @@ rule consensus:
         consensus = "results/{sample_id}/{sample_id}.fasta",
         consensus_SNPs_only = "results/{sample_id}/{sample_id}_SNPs_only.fasta"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         bcftools consensus -a N -f {input.reference} {input.variants} -o {output.consensus}
@@ -238,7 +238,7 @@ rule variant_qc:
     output:
         qc_metrics = "results/{sample_id}/{sample_id}_variants_qc.report"
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         gatk IndexFeatureFile -I {input.variants}

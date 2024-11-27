@@ -73,7 +73,7 @@ A docker image with all dependencies installed is available at [DockerHub](https
 ```
 singularity pull docker://mneacs/treponema-assembly:latest
 ```
-and change the singularity argument in Snakefile with the path to the generated .sif file.
+and change the singularity parameter in `config.yaml` with the path to the generated .sif file.
 
 ### Reference sequence
 Within the directory containing the Snakefile, create a `reference` subdirectory to store the reference fasta file and the corresponding index and dictionary files (only for the reference-based pipelines). These can be created with:
@@ -89,10 +89,10 @@ Store the compressed paired-end .fastq files in a directory named `data`, contai
 snakemake --cores 16 --use-singularity results/ERR3596791/ERR3596791.fasta
 ```
 ### Resources
-All pipelines use up to 16 threads per sample and can process multiple samples in parallel if enough threads are provided. Example: to process 10 samples at the same time, 160 threads are needed. With SLURM, that means 10 nodes with 16 threads each or 5 nodes with 32 threads each. The reference-based pipeline needs up to 10 minutes/sample (with 16 threads). The de novo assembly might take up to 30 minutes/sample. Some steps are memory-intensive (5 GB per CPU).
+All pipelines use up to 16 threads per sample (this number can be adjusted in the configuration file) and can process multiple samples in parallel if enough threads are provided. An example SLURM setup for processing 10 samples in parallel can be found in `slurm_job.sh`. The reference-based pipeline needs up to 10 minutes/sample (with 16 threads). The de novo assembly might take up to 30 minutes/sample. Some steps are memory-intensive (5 GB per CPU).
 
 ## Downstream analysis
-The pipeline creates a multi-fasta file containing the consensus sequences of all samples, but these will not be aligned (unless only the SNPs were included). To align consensus sequences containing indels or *de novo* assembled sequences, you can try using [MAFFT](https://academic.oup.com/bib/article/20/4/1160/4106928) or [Mauve](https://pmc.ncbi.nlm.nih.gov/articles/PMC442156/). These are among the few multiple sequence alignment tools capable of aligning genomes larger than 1 Mbp, but they are still limited in the number of sequences that can be aligned. MAFFT is relatively fast and accurate for up to 15 sequences, but totally infeasible for more. Mauve goes up to 40, but it takes hours to run and it is not very accurate. 
+The pipeline creates a multi-fasta file containing the consensus sequences of all samples, but these will not be aligned (unless only the SNPs were included). To align consensus sequences containing indels or *de novo* assembled sequences, you can try using [MAFFT](https://academic.oup.com/bib/article/20/4/1160/4106928) or [Mauve](https://pmc.ncbi.nlm.nih.gov/articles/PMC442156/). These are among the few multiple sequence alignment tools capable of aligning genomes larger than 1 Mbp, but they are still limited in the number of sequences that can be aligned. MAFFT is relatively fast and accurate for up to 15 sequences, but totally unusable for more. Mauve goes up to 40, but it takes hours to run and it is not very accurate. 
 
 Example usage:
 ```

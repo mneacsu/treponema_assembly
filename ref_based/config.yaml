@@ -1,10 +1,12 @@
 #General
-REFERENCE: "reference/NC_016848.fasta"
-THREADS: 16
+
+SINGULARITY: "docker://mneacs/treponema-assembly:latest"
+THREADS: 16                     # max. number of threads per sample
 
 
 #Alignment
 
+REFERENCE: "reference/NC_016848.fasta"
 MIN_SEED_LENGTH: 19             # min. seed length
 MIN_INTERNAL_SEED_X: 1.5        # look for internal seeds inside a seed longer than MIN_SEED_LENGTH * MIN_INTERNAL_SEED_X
 

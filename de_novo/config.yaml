@@ -1,6 +1,7 @@
 #General
 
-THREADS: 16
+SINGULARITY: "docker://mneacs/treponema-assembly:latest"
+THREADS: 16     # max. number of threads per sample
 
 #De novo assembly 
 

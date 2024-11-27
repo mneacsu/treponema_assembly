@@ -37,7 +37,7 @@ rule preprocess:
         report = "results/{sample_id}/{sample_id}_reads_qc.html"
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         fastp   -i {input.reads_fwd} -I {input.reads_rev} \
@@ -62,7 +62,7 @@ rule assemble:
         contigs = "results/{sample_id}/contigs.fasta"
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         spades.py \
@@ -89,7 +89,7 @@ rule scaffold:
         scaffolds = "results/{sample_id}/scaffold.fasta"
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         cp {input.recipe} results/{wildcards.sample_id}/
@@ -113,7 +113,7 @@ rule assembly_qc:
         out_dir = directory("results/{sample_id}/quast")
     threads: config['THREADS']
     singularity:
-        "docker://mneacs/treponema-assembly"
+        config["SINGULARITY"]
     shell:
         '''
         quast.py -1 {input.reads_fwd}  -2 {input.reads_rev} -r {input.reference}  -o {output.out_dir} -s {input.scaffolds} -t {threads}
