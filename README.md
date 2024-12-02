@@ -103,3 +103,40 @@ or
 progressiveMauve --output=<output.xmfa> <input.fasta>
 ```
 Mauve outputs the alignment in extended multi-fasta format which can be converted to regular fasta using [this script](https://github.com/kjolley/seq_scripts/blob/master/xmfa2fasta.pl).
+
+## Long read assembly
+
+Steps:
+1. Basecalling
+Extracts reads from POD5 files and trims sequencing adapters, primers and barcodes (after classifying the reads by barcode). Needs GPU.
+Tool: [dorado](https://dorado-docs.readthedocs.io/en/latest/) basecaller
+```
+srun --gpus 8 --mem-per-cpu 10g --time=02:00:00 dorado basecaller --kit-name SQK-NBD114-96 --trim all --models-directory ./ hac barcode44/ > barcode44.bam
+```
+2. Demultiplexing
+Creates one file per barcode using the classification from the previous step. Outputs FASTQ files.
+Tool: [dorado](https://dorado-docs.readthedocs.io/en/latest/) demux
+```
+dorado demux --no-classify --emit-fastq barcode44.bam -o barcode44_demux
+```
+3. Read QC
+Tool: [nanoQC](https://github.com/wdecoster/nanoQC)
+```
+nanoQC -o barcode44_nanoQC barcode44.fastq
+```
+4. Read trimming & filtering
+Filters low-quality reads (Q<10) and reads shorter than 1000 bp. Trims the first and last 10 bp out of each read.
+Tool: [chopper](https://github.com/wdecoster/chopper)
+```
+chopper -q 10 -l 1000 --headcrop 10 --tailcrop 10 --threads 32 -i barcode44.fastq > barcode44_trimmed.fastq
+```
+5. Assembly
+Tool: [Flye](https://www.nature.com/articles/s41587-019-0072-8)
+```
+flye --nano-raw barcode44_trimmed.fastq --out-dir barcode44_flye -t 32
+```
+6. Assembly QC
+Tool: [QUAST](https://academic.oup.com/bioinformatics/article/29/8/1072/228832)
+```
+quast.py --nanopore barcode44_trimmed.fastq -r CP004011.fasta -o barcode44_quast -t 32 barcode44_flye/assembly.fasta
+```
